@@ -26,6 +26,12 @@ def cleanup_temp_files(output_dir: Path, keep: bool = False) -> None:
     -----------------
     ALWAYS KEPT (essential outputs):
     - records.tsv (input/output mapping)
+    - the clustering result (deepmmseqs_results.tsv / cluster_results.tsv), which
+      is hours of deterministic work on a large input and is exactly what
+      --resume reuses. Deleting it made resume useless: the run that produced it
+      finished, cleanup removed it, and the next run had to spend the hours
+      again. It is small — 40 MB for 614,037 proteins — beside what it costs to
+      recompute.
     - hoodini-viz/ (visualization data: html, tree.nwk, tsv/, parquet/)
     - neighborhood/neighborhoods.fasta (nucleotide sequences)
     - target_prots.fasta (target protein sequences)
@@ -66,7 +72,6 @@ def cleanup_temp_files(output_dir: Path, keep: bool = False) -> None:
         "tree.nwk",  # Tree (already in hoodini-viz)
         "wgrr.tsv",  # WGRR data (already in hoodini-viz)
         "intergenic.fasta",  # Intergenic regions temp
-        "deepmmseqs_results.tsv",  # MMseqs intermediate (clusters in hoodini-viz)
         "fastani_genome_list.txt",  # FastANI temp
         "fastani_output.tsv",  # FastANI raw output
         "fastani_all.log",  # FastANI log
