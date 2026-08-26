@@ -98,6 +98,58 @@ def count_sequences(fasta: Path) -> int:
     return n
 
 
+def _fasta_ids(fasta: Path) -> set:
+    """Every sequence id in a FASTA — the bit up to the first whitespace."""
+    ids = set()
+    with open(fasta, "rb") as fh:
+        for line in fh:
+            if line.startswith(b">"):
+                ids.add(line[1:].split(None, 1)[0].strip())
+    return ids
+
+
+def _tsv_members(tsv: Path) -> set:
+    """Every clustered member id in a two-column MMseqs TSV."""
+    members = set()
+    with open(tsv, "rb") as fh:
+        for line in fh:
+            parts = line.rstrip(b"\n").split(b"\t")
+            if len(parts) >= 2:
+                members.add(parts[1].strip())
+    return members
+
+
+def reusable(output: Path, fasta: Path) -> bool:
+    """Whether an existing clustering really covers *this* FASTA.
+
+    "The file is there" is not enough, and getting this wrong is worse than
+    reclustering. The neighbourhood set depends on the window size, so the same
+    inputsheet run with a different ``--win`` yields a different protein set —
+    and a stale clustering reused against it would give every protein a family
+    id computed for somebody else. That is a silent, plausible-looking wrong
+    answer, which is the only kind worth being careful about.
+
+    Comparing the id sets is a couple of seconds at six hundred thousand
+    proteins, and it validates a file that was written before this check
+    existed rather than trusting a sidecar that would not be there.
+    """
+    if not (output.exists() and output.stat().st_size > 0):
+        return False
+    try:
+        want = _fasta_ids(fasta)
+        have = _tsv_members(output)
+    except OSError:
+        return False
+    if want == have:
+        return True
+    info(
+        f"↻\tExisting clustering at {output} covers {len(have):,} proteins, "
+        f"this input has {len(want):,} ({len(want - have):,} missing) — "
+        f"reclustering rather than reusing it"
+    )
+    return False
+
+
 def plan_for(n_seqs: int) -> dict:
     """Clustering parameters appropriate to an input of this size.
 
@@ -140,7 +192,7 @@ def cluster_with_mmseqs(
     temp_folder = Path(temp_folder)
     output = Path(output) if output is not None else None
 
-    if resume and output is not None and output.exists() and output.stat().st_size > 0:
+    if resume and output is not None and reusable(output, fasta):
         info(f"↩️\tReusing existing clustering at {output}")
         return
 
