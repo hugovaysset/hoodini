@@ -55,6 +55,14 @@ class RuntimeConfig:
     minwin: int | None = None
     minwin_type: str | None = None
 
+    #: Continue an existing output folder instead of wiping or refusing it.
+    resume: bool = False
+    #: Write the standalone HTML viewer. Off is for hosts that render their
+    #: own view from the parquet tables, and for runs too large for one page.
+    html: bool = True
+    #: Above this, the HTML is skipped with a message rather than attempted.
+    html_max_mb: int = 64
+
     tree_mode: str | None = None
     tree_file: str | None = None
     aai_mode: str | None = None

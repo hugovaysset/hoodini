@@ -7,6 +7,7 @@ from pathlib import Path
 import polars as pl
 from jinja2 import Environment
 
+from hoodini.utils.logging_utils import info, warn
 from hoodini.utils.polars_adapters import to_polars
 
 
@@ -124,6 +125,8 @@ def write_viz_outputs(
     blast_data: pl.DataFrame | None = None,
     crispr_df: pl.DataFrame | None = None,
     genomad_df: pl.DataFrame | None = None,
+    html: bool = True,
+    html_max_bytes: int | None = 64 * 1024 * 1024,
 ) -> Path:
     """
     Write hoodini visualization-ready files into a hoodini-viz folder.
@@ -684,7 +687,37 @@ def write_viz_outputs(
         empty_prot.write_csv(tsv_dir / "protein_links.txt", separator="\t", include_header=False)
         empty_prot.write_parquet(parquet_dir / "protein_links.parquet")
 
-    # Render standalone HTML by injecting base64 parquet data into the template placeholders.
+    # ------------------------------------------------------------------
+    # The standalone HTML.
+    #
+    # It carries every table base64'd into the document, which is what makes it
+    # portable and is also what stops it existing above a certain size: base64
+    # is 4 bytes per 3, so the page is about 1.33x the parquet plus the app. A
+    # 44-neighbourhood run gives 3.5 MB; a 43,739-neighbourhood one projects to
+    # a quarter of a gigabyte of HTML that no browser will open, and building it
+    # needs several times that in memory to hold the encoded strings.
+    #
+    # So the size is checked BEFORE encoding anything, and a run that is past
+    # the limit writes its parquet and says so rather than spending ten minutes
+    # producing a file that cannot be used. The tables are the real output; a
+    # host that renders its own view (Zahir re-renders this same template per
+    # selection) never wanted the monolith in the first place.
+    # ------------------------------------------------------------------
+    total_parquet = sum(p.stat().st_size for p in parquet_dir.glob("*.parquet"))
+    if not html:
+        info(f"⏭️\tSkipping the standalone HTML (--no-html); parquet is in {parquet_dir}")
+        return outdir
+    if html_max_bytes is not None and total_parquet * 4 / 3 > html_max_bytes:
+        warn(
+            f"Skipping the standalone HTML: the tables are "
+            f"{total_parquet / 1e6:.0f} MB, which base64s to about "
+            f"{total_parquet * 4 / 3 / 1e6:.0f} MB of document — past the "
+            f"{html_max_bytes / 1e6:.0f} MB limit, and a page that size does not "
+            f"open. The parquet tables are in {parquet_dir}; raise the limit with "
+            f"--html-max-mb if you really want the file."
+        )
+        return outdir
+
     resource_template = files("hoodini").joinpath("template", "template.html")
     template_html = resource_template.read_text(encoding="utf-8")
 

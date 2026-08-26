@@ -19,6 +19,7 @@ def initialize_inputs(
     inputsheet: Path | str | None = None,
     output: Path | str | None = None,
     force: bool = False,
+    resume: bool = False,
     remote_evalue: float = 1e-5,
     remote_max_targets: int = 100,
 ) -> pl.DataFrame:
@@ -65,11 +66,21 @@ def initialize_inputs(
         sys.exit(1)
 
     if output_folder.exists():
-        if force:
+        if resume:
+            # Deliberately NOT a delete. `--force` throwing the folder away is
+            # right for a small run and ruinous for a large one: clustering
+            # alone can be hours, it is deterministic, and there was no way to
+            # keep it across a crash in a later stage. With --resume the stages
+            # that can recognise their own finished output skip themselves.
+            info(f"↩️\tResuming in existing folder {output_folder}")
+        elif force:
             warn(f"Overwriting existing folder {output_folder}.")
             shutil.rmtree(output_folder)
         else:
-            error(f"Output folder '{output_folder}' already exists. Use --force to overwrite.")
+            error(
+                f"Output folder '{output_folder}' already exists. "
+                f"Use --force to overwrite, or --resume to continue it."
+            )
             sys.exit(1)
 
     output_folder.mkdir(parents=True, exist_ok=True)

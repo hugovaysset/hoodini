@@ -1,0 +1,13 @@
+#!/bin/bash
+# Run this fork's Hoodini against the aleph environment's dependencies.
+#
+# The aleph conda env is root-owned, so `pip install -e` into it is not
+# available. PYTHONPATH is enough: entries there precede site-packages, so this
+# checkout's `hoodini` package shadows the installed 1.0.0 while polars, ete3,
+# jinja2 and the rest still come from the env that already has them.
+#
+# Point `aleph_hoodini` at this with:
+#   export HOODINI_BIN=/home/ubuntu/hoodini/bin/hoodini
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export PYTHONPATH="$HERE/src${PYTHONPATH:+:$PYTHONPATH}"
+exec /opt/conda/envs/aleph/bin/python3.12 -c 'import sys; from hoodini.__main__ import main; sys.exit(main())' "$@"

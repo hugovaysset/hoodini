@@ -33,7 +33,7 @@ click.rich_click.OPTION_GROUPS = {
     "hoodini run": [
         {
             "name": "Input/Output",
-            "options": ["--config", "--input", "--inputsheet", "--output", "--force", "--keep"],
+            "options": ["--config", "--input", "--inputsheet", "--output", "--force", "--resume", "--keep", "--no-html", "--html-max-mb"],
         },
         {
             "name": "Performance",
@@ -251,8 +251,32 @@ def cli():
     default=30.0,
     help="Minimum percent identity threshold for BLAST hits in wGRR/AAI calculations.",
 )
+@click.option(
+    "--no-html",
+    "html",
+    flag_value=False,
+    default=True,
+    help="Write only the parquet tables, not the standalone HTML viewer. For "
+    "hosts that render their own view, and for runs too large for one page.",
+)
+@click.option(
+    "--html-max-mb",
+    "html_max_mb",
+    type=int,
+    default=64,
+    help="Skip the standalone HTML above this projected size in MB (default 64). "
+    "The page carries every table base64'd into it, so it grows with the data "
+    "and stops opening long before it stops being written.",
+)
 @click.option("--keep", is_flag=True, help="Keep temporary files (do not delete).")
 @click.option("--force", is_flag=True, help="Overwrite existing output folder if it exists.")
+@click.option(
+    "--resume",
+    is_flag=True,
+    help="Continue an existing output folder, skipping stages whose output is "
+    "already there. Clustering is the one that matters: it can be hours, it is "
+    "deterministic, and --force threw it away.",
+)
 @click.option("--quiet", is_flag=True, help="Silence all non-error output.")
 @click.option("--debug", is_flag=True, help="Enable verbose debug logging.")
 @click.pass_context
@@ -283,7 +307,16 @@ def run(ctx, config_file: str | None, quiet: bool, debug: bool, **cli_kwargs) ->
     if config_file:
         with open(config_file, "rb") as f:
             grouped = tomli.load(f)
-            file_kwargs = {k: v for section in grouped.values() for k, v in section.items()}
+        # Top-level scalars are allowed, not only tables. The comprehension
+        # this replaces assumed every key was a section, so a two-line config
+        # of `html = false` died with "'bool' object has no attribute 'items'"
+        # — which names neither the file nor the line. `load_default_config`
+        # already tolerated both shapes; this now matches it.
+        for key, value in grouped.items():
+            if isinstance(value, dict):
+                file_kwargs.update(value)
+            else:
+                file_kwargs[key] = value
 
     cli_clean = {}
     for k, v in cli_kwargs.items():

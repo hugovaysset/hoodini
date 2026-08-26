@@ -263,6 +263,7 @@ def _run_pipeline_stages(config: RuntimeConfig, tracker) -> None:
             inputsheet=config.inputsheet,
             output=config.output,
             force=config.force,
+            resume=bool(getattr(config, "resume", False)),
             remote_evalue=config.remote_evalue or 1e-5,
             remote_max_targets=config.remote_max_targets or 100,
         )
@@ -364,6 +365,7 @@ def _run_pipeline_stages(config: RuntimeConfig, tracker) -> None:
             output_dir=config.output,
             clust_method=config.clust_method,
             sorfs=config.sorfs,
+            threads=config.num_threads,
         )
 
     if config.sorfs:
@@ -492,7 +494,9 @@ def _run_pipeline_stages(config: RuntimeConfig, tracker) -> None:
         if config.deffinder:
             from hoodini.extra_tools.defensefinder import run_defensefinder
 
-            deffinder_df = run_defensefinder(all_gff, all_prots, config.output)
+            deffinder_df = run_defensefinder(
+                all_gff, all_prots, config.output, threads=config.num_threads
+            )
             if deffinder_df.height > 0:
                 all_prots = all_prots.join(deffinder_df, on="id", how="left")
 
@@ -610,6 +614,8 @@ def _run_pipeline_stages(config: RuntimeConfig, tracker) -> None:
             domains_data=domains_data,
             write_domains=bool(config.domains),
             ncrna_data=ncrna_data,
+            html=getattr(config, "html", True),
+            html_max_bytes=int(getattr(config, "html_max_mb", 64)) * 1024 * 1024,
         )
 
     # Cleanup temporary files

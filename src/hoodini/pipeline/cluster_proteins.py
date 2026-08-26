@@ -15,6 +15,7 @@ def cluster_proteins(
     output_dir: str | Path,
     clust_method: str = "deepmmseqs",
     sorfs: bool = False,
+    threads: int | None = None,
 ) -> pl.DataFrame:
     """
     Cluster neighbor proteins and annotate with fam_cluster.
@@ -94,16 +95,19 @@ def cluster_proteins(
         tmp_dir = Path(output_dir) / "tmp_mmseqs"
         tmp_dir.mkdir(parents=True, exist_ok=True)
         output_file = Path(output_dir) / "deepmmseqs_results.tsv"
+        # No hardcoded parameters: `cluster_with_mmseqs` picks them from the
+        # size of the input, so a small neighbourhood set still gets the deep
+        # profile-iterated clustering and a large one gets something that
+        # finishes. See that module's docstring for the measurements.
         cluster_with_mmseqs(
             faa_path,
             tmp_dir,
-            max_steps=5,
-            sensitivity=15,
             cluster_mode=1,
-            cluster_steps=9,
             cov_mode=0,
             coverage=0.7,
             output=output_file,
+            threads=threads,
+            log=Path(output_dir) / "mmseqs.log",
         )
         clusterdf = pl.read_csv(
             output_file,

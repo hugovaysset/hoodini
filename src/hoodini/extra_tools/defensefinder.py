@@ -6,7 +6,16 @@ import polars as pl
 from hoodini.utils.logging_utils import info, warn
 
 
-def run_defensefinder(all_gff, all_prots, output):
+#: Above this many neighbour proteins DefenseFinder is refused rather than
+#: started. It is one macsyfinder process over ~4,000 HMM profiles and it holds
+#: its results in memory; on a 709-protein set it costs seconds, and there is
+#: no batching here that would make a million-protein set anything other than a
+#: run that never returns. Refusing early and saying so beats discovering it
+#: after every other stage has already been paid for.
+DEFFINDER_MAX_PROTEINS = 200_000
+
+
+def run_defensefinder(all_gff, all_prots, output, threads: int | None = None):
     info("🛡️\tRunning DefenseFinder...")
     deffinder_df = pl.DataFrame()
     try:
@@ -49,6 +58,17 @@ def run_defensefinder(all_gff, all_prots, output):
                 if row["sequence"] is not None:
                     f.write(f">{row['fasta_id']}\n{row['sequence']}\n")
 
+        n_written = temp_gff.height
+        if n_written > DEFFINDER_MAX_PROTEINS:
+            warn(
+                f"Skipping DefenseFinder: {n_written:,} neighbour proteins is past "
+                f"the {DEFFINDER_MAX_PROTEINS:,} this stage can handle in one "
+                f"macsyfinder run. Aleph's precomputed DefenseFinder calls still "
+                f"annotate these proteins; it is only the recomputed pass over "
+                f"these exact windows that is skipped."
+            )
+            return pl.DataFrame()
+
         command = [
             "defense-finder",
             "run",
@@ -59,6 +79,10 @@ def run_defensefinder(all_gff, all_prots, output):
             "-o",
             str(output / "defense_finder"),
         ]
+        # macsyfinder is otherwise single-process, which on a large window set
+        # is the difference between minutes and a night.
+        if threads and threads > 1:
+            command += ["-w", str(int(threads))]
         subprocess.run(command, check=True)
 
         result_file = output / "defense_finder" / "proteome_defense_finder_genes.tsv"
