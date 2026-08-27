@@ -33,7 +33,7 @@ click.rich_click.OPTION_GROUPS = {
     "hoodini run": [
         {
             "name": "Input/Output",
-            "options": ["--config", "--input", "--inputsheet", "--output", "--force", "--resume", "--keep", "--no-tidy", "--no-html",
+            "options": ["--config", "--input", "--inputsheet", "--output", "--force", "--resume", "--keep", "--no-tidy", "--no-sequences", "--no-html",
                         "--html-max-mb", "--linclust-min", "--clust-mode"],
         },
         {
@@ -283,6 +283,13 @@ def cli():
 @click.option(
     "--clust-mode", "clust_mode", type=click.Choice(["auto", "linclust", "cluster"]),
     default=None, help="Force a clustering mode regardless of input size.",
+)
+@click.option(
+    "--no-sequences", "sequences", flag_value=False, default=True,
+    help="Drop residue sequences from protein_metadata. They are 95% of that "
+    "table (225 MB against 12 MB on a 622,389-protein run) and 43% of every "
+    "rendered page — but the viewer's fold-a-protein-on-click needs them, so "
+    "only drop them if something else provides structures.",
 )
 @click.option("--keep", is_flag=True, help="Keep temporary files (do not delete).")
 @click.option("--force", is_flag=True, help="Overwrite existing output folder if it exists.")

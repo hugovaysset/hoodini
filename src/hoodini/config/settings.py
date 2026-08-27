@@ -59,6 +59,9 @@ class RuntimeConfig:
     resume: bool = False
     #: Delete outputs nothing downstream reads once the parquet exists.
     tidy: bool = True
+    #: Keep residue sequences in protein_metadata. 95% of that table, and what
+    #: the viewer's fold-on-click needs.
+    sequences: bool = True
     #: Sequences at or above which clustering falls back to linclust.
     linclust_min_seqs: int | None = None
     #: Force a clustering mode regardless of size: "linclust" or "cluster".

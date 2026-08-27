@@ -127,6 +127,7 @@ def write_viz_outputs(
     genomad_df: pl.DataFrame | None = None,
     html: bool = True,
     html_max_bytes: int | None = 64 * 1024 * 1024,
+    sequences: bool = True,
 ) -> Path:
     """
     Write hoodini visualization-ready files into a hoodini-viz folder.
@@ -396,6 +397,17 @@ def write_viz_outputs(
         csv_data = prots.write_csv(separator="\t", include_header=False)
         protein_headers = "\t".join(prots.columns) + "\n"
         (tsv_dir / "protein_metadata.txt").write_text(protein_headers + csv_data, encoding="utf-8")
+        if not sequences and "sequence" in prots.columns:
+            # 95% of this table is the residue strings — measured at 225.5 MB
+            # against 11.7 MB without, on 622,389 neighbour proteins — and they
+            # compress badly because protein sequence is high-entropy. They are
+            # also carried into every rendered page, where they were 43% of the
+            # bytes and 27% of the time.
+            #
+            # Not free to drop: the viewer folds a protein on click and needs
+            # the residues to do it. A host with its own structure panel does
+            # not, which is why this is a choice rather than a default.
+            prots = prots.drop("sequence")
         prots.write_parquet(parquet_dir / "protein_metadata.parquet")
     else:
         protein_headers = "\t".join(base_headers) + "\n"

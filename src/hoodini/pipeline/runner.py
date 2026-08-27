@@ -666,6 +666,7 @@ def _run_pipeline_stages(config: RuntimeConfig, tracker) -> None:
             domains_data=domains_data,
             write_domains=bool(config.domains),
             ncrna_data=ncrna_data,
+            sequences=getattr(config, "sequences", True),
             html=getattr(config, "html", True),
             html_max_bytes=int(getattr(config, "html_max_mb", 64)) * 1024 * 1024,
         )
