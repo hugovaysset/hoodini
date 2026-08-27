@@ -19,6 +19,51 @@ from hoodini.utils.memory_utils import reset_tracker
 log = logging.getLogger(__name__)
 
 
+#: Files a finished run keeps that nothing downstream reads.
+#:
+#: Measured on a 43,739-target run: the output directory was 1.4 GB after the
+#: normal cleanup, and 1.1 GB of that was this list. `hoodini-viz/tsv` is the
+#: worst offender because it is not even an intermediate — it is a text copy of
+#: the parquet the viewer actually loads, kept for people who want to read a
+#: table by eye, at 333 MB.
+#:
+#: Not removed here, deliberately: `hoodini-viz/parquet` (the output),
+#: `records.tsv` (20 MB, the input/output mapping) and the clustering TSV
+#: (39 MB, which `--resume` exists to reuse and which costs hours to recompute).
+TIDY_PATHS = [
+    ("neighborhood", "nucleotide sequences of each window"),
+    ("hoodini-viz/tsv", "text copies of the parquet tables"),
+    ("target_prots.fasta", "target proteins, already in protein_metadata"),
+    ("target_prots.aln", "their alignment, already reduced to the tree"),
+    ("results.fasta", "every neighbour protein, already in protein_metadata"),
+    ("all_neigh.tsv", "window extents, already in hoods.parquet"),
+]
+
+
+def tidy_outputs(output_dir: Path, report=None) -> int:
+    """Delete what a completed run no longer needs. Returns bytes freed.
+
+    Separate from `cleanup_temp_files` because it is a different judgement:
+    that removes scratch, this removes real outputs that happen to be
+    redundant once the parquet exists. A caller who wants them says so.
+    """
+    freed = 0
+    for rel, why in TIDY_PATHS:
+        target = Path(output_dir) / rel
+        if not target.exists():
+            continue
+        size = sum(f.stat().st_size for f in target.rglob("*") if f.is_file()) \
+            if target.is_dir() else target.stat().st_size
+        if target.is_dir():
+            shutil.rmtree(target, ignore_errors=True)
+        else:
+            target.unlink(missing_ok=True)
+        freed += size
+        if report:
+            report(f"removed {rel} ({size / 1e6:.0f} MB) — {why}")
+    return freed
+
+
 def cleanup_temp_files(output_dir: Path, keep: bool = False) -> None:
     """Remove temporary files after pipeline completes.
 
@@ -371,6 +416,8 @@ def _run_pipeline_stages(config: RuntimeConfig, tracker) -> None:
             clust_method=config.clust_method,
             sorfs=config.sorfs,
             threads=config.num_threads,
+            linclust_min=getattr(config, "linclust_min_seqs", None),
+            clust_mode=getattr(config, "clust_mode", None),
         )
 
     if config.sorfs:
@@ -625,3 +672,11 @@ def _run_pipeline_stages(config: RuntimeConfig, tracker) -> None:
 
     # Cleanup temporary files
     cleanup_temp_files(Path(config.output), keep=config.keep)
+
+    # And the redundant outputs, unless asked to keep them. A 43,739-target run
+    # left 1.4 GB after the ordinary cleanup, 1.1 GB of which nothing reads.
+    if getattr(config, "tidy", True) and not config.keep:
+        from hoodini.utils.logging_utils import info
+        freed = tidy_outputs(Path(config.output), report=lambda m: info(f"🧹\t{m}"))
+        if freed:
+            info(f"🧹\tFreed {freed / 1e9:.2f} GB of redundant output")

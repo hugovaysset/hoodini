@@ -57,6 +57,12 @@ class RuntimeConfig:
 
     #: Continue an existing output folder instead of wiping or refusing it.
     resume: bool = False
+    #: Delete outputs nothing downstream reads once the parquet exists.
+    tidy: bool = True
+    #: Sequences at or above which clustering falls back to linclust.
+    linclust_min_seqs: int | None = None
+    #: Force a clustering mode regardless of size: "linclust" or "cluster".
+    clust_mode: str | None = None
     #: Write the standalone HTML viewer. Off is for hosts that render their
     #: own view from the parquet tables, and for runs too large for one page.
     html: bool = True

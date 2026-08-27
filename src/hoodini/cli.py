@@ -33,7 +33,8 @@ click.rich_click.OPTION_GROUPS = {
     "hoodini run": [
         {
             "name": "Input/Output",
-            "options": ["--config", "--input", "--inputsheet", "--output", "--force", "--resume", "--keep", "--no-html", "--html-max-mb"],
+            "options": ["--config", "--input", "--inputsheet", "--output", "--force", "--resume", "--keep", "--no-tidy", "--no-html",
+                        "--html-max-mb", "--linclust-min", "--clust-mode"],
         },
         {
             "name": "Performance",
@@ -267,6 +268,21 @@ def cli():
     help="Skip the standalone HTML above this projected size in MB (default 64). "
     "The page carries every table base64'd into it, so it grows with the data "
     "and stops opening long before it stops being written.",
+)
+@click.option(
+    "--no-tidy", "tidy", flag_value=False, default=True,
+    help="Keep outputs that nothing downstream reads — the nucleotide window "
+    "FASTA, the text copies of the parquet tables, the target alignment. They "
+    "were 1.1 GB of a 1.4 GB output directory on a 43,739-target run.",
+)
+@click.option(
+    "--linclust-min", "linclust_min_seqs", type=int, default=None,
+    help="Fall back to linclust at or above this many neighbour proteins "
+    "(default 142,000, which is 10,000 targets).",
+)
+@click.option(
+    "--clust-mode", "clust_mode", type=click.Choice(["auto", "linclust", "cluster"]),
+    default=None, help="Force a clustering mode regardless of input size.",
 )
 @click.option("--keep", is_flag=True, help="Keep temporary files (do not delete).")
 @click.option("--force", is_flag=True, help="Overwrite existing output folder if it exists.")

@@ -16,6 +16,8 @@ def cluster_proteins(
     clust_method: str = "deepmmseqs",
     sorfs: bool = False,
     threads: int | None = None,
+    linclust_min: int | None = None,
+    clust_mode: str | None = None,
 ) -> pl.DataFrame:
     """
     Cluster neighbor proteins and annotate with fam_cluster.
@@ -108,6 +110,8 @@ def cluster_proteins(
             output=output_file,
             threads=threads,
             log=Path(output_dir) / "mmseqs.log",
+            linclust_min=linclust_min,
+            mode=None if clust_mode in (None, "auto") else clust_mode,
         )
         clusterdf = pl.read_csv(
             output_file,

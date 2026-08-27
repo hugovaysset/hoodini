@@ -44,9 +44,18 @@ from hoodini.utils.logging_utils import error, info
 #: quadratic-ish in practice and it is what turns minutes into a day.
 PROFILE_MAX_SEQS = 50_000
 
-#: Above this, even a cascaded all-vs-all is too slow and clustering falls back
-#: to linclust, which is linear in the number of sequences.
-LINCLUST_MIN_SEQS = 2_000_000
+#: Above this, clustering falls back to linclust, which is linear rather than
+#: cascaded-all-vs-all.
+#:
+#: 142,000 neighbour proteins is exactly **10,000 targets** at the 14.2
+#: neighbours per locus measured on a real run — which is where a caller cares
+#: more about finishing than about catching the last remote homologies. It was
+#: 2,000,000, which no realistic input reached, so the fallback never fired.
+#:
+#: Tunable, and worth tuning: the right threshold depends on whether you are
+#: reading the families or just colouring by them. `--linclust-min` on the
+#: command line, `linclust_min_seqs` in a config, or pass it directly.
+LINCLUST_MIN_SEQS = 142_000
 
 
 class MmseqsError(RuntimeError):
@@ -150,13 +159,13 @@ def reusable(output: Path, fasta: Path) -> bool:
     return False
 
 
-def plan_for(n_seqs: int) -> dict:
+def plan_for(n_seqs: int, linclust_min: int = None) -> dict:
     """Clustering parameters appropriate to an input of this size.
 
     Explicit rather than a smooth curve, because the three regimes really are
     different algorithms and it should be obvious from the log which one ran.
     """
-    if n_seqs >= LINCLUST_MIN_SEQS:
+    if n_seqs >= (LINCLUST_MIN_SEQS if linclust_min is None else linclust_min):
         return {"mode": "linclust", "sensitivity": None, "cluster_steps": None, "max_steps": 0}
     if n_seqs > PROFILE_MAX_SEQS:
         return {"mode": "cluster", "sensitivity": 7.5, "cluster_steps": 3, "max_steps": 0}
@@ -176,6 +185,8 @@ def cluster_with_mmseqs(
     threads=None,
     log=None,
     resume=True,
+    linclust_min=None,
+    mode=None,
 ):
     """Cluster ``fasta`` into families, writing a two-column TSV to ``output``.
 
@@ -197,7 +208,12 @@ def cluster_with_mmseqs(
         return
 
     n_seqs = count_sequences(fasta)
-    plan = plan_for(n_seqs)
+    plan = plan_for(n_seqs, linclust_min)
+    if mode in ("linclust", "cluster"):
+        # An explicit mode beats the size rule in both directions: forcing
+        # linclust on a small set is a legitimate "I only need it fast", and
+        # forcing cluster on a large one is "I will wait".
+        plan = {**plan, "mode": mode}
     # An explicit sensitivity is a request for a real cascaded cluster run, so
     # it overrides the linclust regime as well as the number it names.
     asked_for_cluster = sensitivity is not None
@@ -207,7 +223,8 @@ def cluster_with_mmseqs(
         cluster_steps = plan["cluster_steps"] or 3
     if max_steps is None:
         max_steps = plan["max_steps"]
-    mode = "cluster" if (asked_for_cluster or plan["mode"] == "cluster") else "linclust"
+    mode = plan["mode"] if mode in ("linclust", "cluster") else (
+        "cluster" if (asked_for_cluster or plan["mode"] == "cluster") else "linclust")
 
     if threads is None:
         threads = os.cpu_count() or 1
@@ -331,6 +348,13 @@ def main():
     )
     parser.add_argument("--threads", type=int, default=None, help="Threads (default: all cores)")
     parser.add_argument(
+        "--linclust-min", type=int, default=None,
+        help=f"fall back to linclust at or above this many sequences "
+             f"(default {LINCLUST_MIN_SEQS:,}, which is 10,000 targets)")
+    parser.add_argument(
+        "--clust-mode", choices=["auto", "linclust", "cluster"], default="auto",
+        help="override the size rule entirely")
+    parser.add_argument(
         "--no-resume", action="store_true", help="Recluster even if the output already exists"
     )
     parser.add_argument("-o", "--output", required=True, help="Output file name")
@@ -352,6 +376,8 @@ def main():
             args.output,
             threads=args.threads,
             resume=not args.no_resume,
+            linclust_min=args.linclust_min,
+            mode=None if args.clust_mode == "auto" else args.clust_mode,
         )
     except MmseqsError as exc:
         error(str(exc))
