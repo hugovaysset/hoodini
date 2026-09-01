@@ -1,6 +1,13 @@
 import multiprocessing as _mp
+import os
 import sys
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
+from concurrent.futures import (
+    FIRST_COMPLETED,
+    ProcessPoolExecutor,
+    ThreadPoolExecutor,
+    as_completed,
+    wait,
+)
 from datetime import datetime
 from pathlib import Path
 
@@ -27,6 +34,29 @@ from hoodini.pipeline.helpers.neighborhood_extractor import extract_neighborhood
 from hoodini.pipeline.helpers.prefetch_links import get_prefetched_link_table
 from hoodini.utils.logging_utils import error, info, success, warn
 from hoodini.utils.polars_adapters import to_polars
+
+
+#: Above this many targets the parent bounds itself: a sliding window of
+#: in-flight futures instead of all of them, and periodic folding of the
+#: result frames. Below it nothing changes -- a small run behaves exactly as
+#: it did upstream, which is what makes this upstreamable rather than a
+#: private variant.
+#:
+#: Overridable so the bounded branch can be exercised on a small input; the
+#: two branches must produce the same tables, and a threshold that can only be
+#: crossed by a 50,000-target run is a branch nothing ever tests.
+BOUNDED_ABOVE = int(os.environ.get("HOODINI_BOUNDED_ABOVE", "5000"))
+
+#: Result frames folded per concat. One polars frame per target is mostly
+#: Arrow bookkeeping; at 53,000 tiny frames the bookkeeping is the memory, and
+#: the single `pl.concat` at the end doubles the peak on top of it.
+FOLD_EVERY = int(os.environ.get("HOODINI_FOLD_EVERY", "2000"))
+
+
+def _fold(frames: list) -> None:
+    """Collapse an accumulating list of frames in place, bounding its length."""
+    if len(frames) >= FOLD_EVERY:
+        frames[:] = [pl.concat(frames, how="vertical")]
 
 
 def _extract_neighborhood_star(args):
@@ -429,18 +459,18 @@ def run_assembly_parser(
                 task = progress.add_task("Parsing GBFF", total=len(file_list))
                 progress.start()
 
+            bounded = len(file_list) > BOUNDED_ABOVE
+            max_inflight = max(4 * num_threads, 64)
+
             with ProcessPoolExecutor(
                 max_workers=num_threads, mp_context=_mp.get_context("spawn")
             ) as executor:
-                futures = {
-                    executor.submit(_extract_neighborhood_star, item): idx
-                    for idx, item in enumerate(file_list)
-                }
+                futures: dict = {}
 
-                for completed, future in enumerate(as_completed(futures), start=1):
-                    idx = futures[future]
+                def _collect(future) -> None:
+                    """One completed extraction. Identical in both branches."""
+                    idx = futures.pop(future)
                     item = file_list[idx]
-
                     try:
                         res = future.result(timeout=600)
                         if res[0] is not None:
@@ -457,10 +487,53 @@ def run_assembly_parser(
                         failed_ids.append(str(item))
                         failed_msgs.append(f"Exception: {type(e).__name__}: {str(e)}")
                     finally:
+                        if bounded:
+                            _fold(df_list)
+                            _fold(df_list_neigh)
                         if use_jupyter and pbar:
                             pbar.update(1)
                         elif progress and task is not None:
                             progress.advance(task)
+
+                if not bounded:
+                    # `update`, not a rebind: `_collect` reads `futures` as a
+                    # closure variable, and rebinding it under a nested
+                    # function that already exists is the kind of thing that
+                    # works until someone moves a line.
+                    futures.update({
+                        executor.submit(_extract_neighborhood_star, item): idx
+                        for idx, item in enumerate(file_list)
+                    })
+                    for future in as_completed(list(futures)):
+                        _collect(future)
+                else:
+                    # Submitting 53,000 futures at once means the parent holds
+                    # 53,000 pickled argument tuples, and every result frame,
+                    # before the first one is folded away. Measured on a
+                    # 53,416-target run: twelve workers at ~4 GB apiece and a
+                    # kernel OOM kill on a 58 GiB box with no swap.
+                    #
+                    # A sliding window costs nothing -- the pool is saturated
+                    # either way -- and bounds the parent by construction.
+                    pending: set = set()
+                    src = iter(enumerate(file_list))
+
+                    def _pump() -> None:
+                        while len(pending) < max_inflight:
+                            try:
+                                idx, item = next(src)
+                            except StopIteration:
+                                return
+                            fut = executor.submit(_extract_neighborhood_star, item)
+                            futures[fut] = idx
+                            pending.add(fut)
+
+                    _pump()
+                    while pending:
+                        done, pending = wait(pending, return_when=FIRST_COMPLETED)
+                        for future in done:
+                            _collect(future)
+                        _pump()
         finally:
             if pbar:
                 pbar.close()

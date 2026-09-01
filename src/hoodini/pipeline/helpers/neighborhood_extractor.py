@@ -10,6 +10,7 @@ Architecture:
 
 from __future__ import annotations
 
+import functools
 import traceback
 from dataclasses import dataclass
 from pathlib import Path
@@ -208,13 +209,32 @@ def parse_gff_faa(gff_path: str, faa_path: str) -> pl.DataFrame:
     return features_df
 
 
-def _read_fasta(filename: str) -> pl.DataFrame:
-    """Read FASTA file into DataFrame with id and sequence columns."""
+#: FASTA files kept parsed per worker process.
+#:
+#: `parse_gff_faa` is called once per TARGET, and several targets routinely
+#: share a genome -- so the same protein FASTA was re-read, re-split and
+#: re-framed once for each of them. `functools.lru_cache` rather than a plain
+#: dict because a worker that lives for thousands of targets must have a bound;
+#: 32 window FASTAs is well under a megabyte, and 32 whole-genome ones is the
+#: shape this cache is deliberately not sized for.
+#:
+#: Safe unconditionally: `parse_gff_faa` joins the returned frame and polars
+#: joins do not mutate their inputs, so every caller gets its own result.
+_FASTA_CACHE_SIZE = 32
+
+
+@functools.lru_cache(maxsize=_FASTA_CACHE_SIZE)
+def _read_fasta_cached(filename: str) -> pl.DataFrame:
     with open(filename) as file:
         records = file.read().split(">")[1:]
         records = [record.split("\n", 1) for record in records]
         records = [(t[0].split(" ")[0], "".join(t[1].split())) for t in records]
     return pl.DataFrame(records, schema=["id", "sequence"], orient="row")
+
+
+def _read_fasta(filename: str) -> pl.DataFrame:
+    """Read FASTA file into DataFrame with id and sequence columns."""
+    return _read_fasta_cached(str(filename))
 
 
 def compute_window(
