@@ -47,15 +47,27 @@ PROFILE_MAX_SEQS = 50_000
 #: Above this, clustering falls back to linclust, which is linear rather than
 #: cascaded-all-vs-all.
 #:
-#: 142,000 neighbour proteins is exactly **10,000 targets** at the 14.2
-#: neighbours per locus measured on a real run — which is where a caller cares
-#: more about finishing than about catching the last remote homologies. It was
-#: 2,000,000, which no realistic input reached, so the fallback never fired.
+#: Back to 2,000,000, because 142,000 was measured against the wrong thing.
 #:
-#: Tunable, and worth tuning: the right threshold depends on whether you are
-#: reading the families or just colouring by them. `--linclust-min` on the
-#: command line, `linclust_min_seqs` in a config, or pass it directly.
-LINCLUST_MIN_SEQS = 142_000
+#: It was set at 10,000 targets on the reasoning that a caller past that point
+#: "cares more about finishing than about catching the last remote
+#: homologies". What linclust actually costs there is not the last remote
+#: homologies, it is nearly all of them: `cluster_proteins` gives a
+#: `fam_cluster` only to clusters of two or more, and linclust leaves most
+#: neighbours alone. Measured across five families -- 74% of Cas12a's 16,858
+#: neighbours got a family under the cascaded settings, 12% of RyR's 190,421
+#: and 2% of patatin's 86,880 under linclust.
+#:
+#: The middle regime is not expensive. FORK.md's own table puts
+#: `-s 7.5 --cluster-steps 3` at 4m43s over 614,037 proteins, against 7s for
+#: linclust -- four minutes, for 189,994 clusters instead of 557,644. A
+#: 120,000-target family lands near 1.4M neighbours and stays in that regime
+#: at this threshold, which is the point.
+#:
+#: Still tunable, and now overridable from the environment so a run that really
+#: is chasing wall clock can say so: `$HOODINI_LINCLUST_MIN`, `--linclust-min`,
+#: `linclust_min_seqs` in a config, or pass it directly.
+LINCLUST_MIN_SEQS = int(os.environ.get("HOODINI_LINCLUST_MIN", "2000000"))
 
 
 class MmseqsError(RuntimeError):
