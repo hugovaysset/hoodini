@@ -57,6 +57,24 @@ spending ten minutes producing one that cannot be used. The size is checked
 every neighbour protein at once. It now passes `-w <threads>`, and refuses
 above 200,000 proteins with a message rather than never returning.
 
+### `diamond deepclust` works with a current DIAMOND
+
+`pipeline/cluster_proteins.py` ran `diamond deepclust -d <faa>
+--member-cover 0.8` and read the clusters off **stdout**. DIAMOND 2.2 made the
+output file mandatory — the same command now exits 1 with `Error: Option
+missing: output file (--out/-o)` — where 2.1.x wrote them to stdout by default.
+
+Since `diamond_deepclust` is the default `clust_method` in
+`config/defaults.toml`, this is the first thing a new user meets on any current
+DIAMOND, and the workaround in circulation is `conda install diamond=2.1.13`:
+pinning a whole environment to an old DIAMOND to keep one command's default
+output stream. Worse, `deepclust` is no longer listed in `diamond help` at all
+(the documented successor is `diamond cluster`, which produced byte-identical
+output on the same input), so the pin is on a command already on its way out.
+
+Passing `-o <file>` works on both versions and needs no pin. `-o /dev/stdout`
+is not an alternative — DIAMOND writes nothing there.
+
 ### Two smaller fixes
 
 - `_run_command` took a shell string and called `sys.exit(1)` on failure. It now

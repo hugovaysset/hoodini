@@ -1,5 +1,4 @@
 import subprocess
-from io import StringIO
 from pathlib import Path
 
 import polars as pl
@@ -75,7 +74,22 @@ def cluster_proteins(
     write_fasta(fasta_df, "id", "sequence", faa_path)
 
     if clust_method == "diamond_deepclust":
-        cmd = ["diamond", "deepclust", "-d", faa_path, "--member-cover", "0.8"]
+        # The clusters come back in a FILE, not on stdout.
+        #
+        # DIAMOND 2.2 made the output file mandatory -- `diamond deepclust -d
+        # x.faa --member-cover 0.8` now exits 1 with "Error: Option missing:
+        # output file (--out/-o)" -- where 2.1.x wrote them to stdout by
+        # default. Reading stdout therefore fails outright on any current
+        # DIAMOND, and because this is the DEFAULT clust_method the failure is
+        # the first thing a new user meets. The workaround in circulation is
+        # `conda install diamond=2.1.13`, which pins the whole environment to
+        # an old DIAMOND to keep one command's default output stream.
+        #
+        # `-o <file>` is accepted by both, so this needs no pin. `-o
+        # /dev/stdout` is not an alternative: DIAMOND writes nothing there.
+        clu_path = output_dir / "diamond_deepclust_results.tsv"
+        cmd = ["diamond", "deepclust", "-d", str(faa_path),
+               "--member-cover", "0.8", "-o", str(clu_path)]
         result = subprocess.run(cmd, capture_output=True)
         if result.returncode != 0:
             stderr_msg = result.stderr.decode("utf-8", errors="replace").strip()
@@ -86,8 +100,15 @@ def cluster_proteins(
                 f"  Stderr: {stderr_msg or '(empty)'}\n"
                 f"  Stdout: {stdout_msg[:500] if stdout_msg else '(empty)'}"
             )
+        # Exit 0 with no file is not something DIAMOND should do, but saying so
+        # here beats a polars error naming a path the caller never chose.
+        if not clu_path.is_file() or clu_path.stat().st_size == 0:
+            raise RuntimeError(
+                f"diamond deepclust exited 0 but wrote no clusters to "
+                f"{clu_path}.\n  Command: {' '.join(str(c) for c in cmd)}"
+            )
         clusterdf = pl.read_csv(
-            StringIO(result.stdout.decode("utf-8")),
+            clu_path,
             separator="\t",
             has_header=False,
             new_columns=["clu_rep_seq", "member"],
