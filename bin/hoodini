@@ -8,6 +8,8 @@
 #
 # Point `aleph_hoodini` at this with:
 #   export HOODINI_BIN=/home/ubuntu/hoodini/bin/hoodini
+# and, where the env is not /opt/conda/envs/aleph, name its interpreter:
+#   export HOODINI_PYTHON=<env>/bin/python3.12
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export PYTHONPATH="$HERE/src${PYTHONPATH:+:$PYTHONPATH}"
-exec /opt/conda/envs/aleph/bin/python3.12 -c 'import sys; from hoodini.__main__ import main; sys.exit(main())' "$@"
+exec "${HOODINI_PYTHON:-/opt/conda/envs/aleph/bin/python3.12}" -c 'import sys; from hoodini.__main__ import main; sys.exit(main())' "$@"
